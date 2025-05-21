@@ -1,0 +1,26 @@
+{
+  "claimRepository": {
+    "type": "String",
+    "value": "claim-check-pattern"
+  },
+  "claimcheckqueue": {
+    "type": "String",
+    "value": "claim-check-pattern"
+  },
+  "destinationEmail": {
+    "type": "String",
+    "value": "me@company.com"
+  },
+  "outlook-ConnectionRuntimeUrl": {
+    "type": "String",
+    "value": "@appsetting('outlook-ConnectionRuntimeUrl')"
+  },
+  "outlook-Authentication": {
+    "type": "Object",
+    "value": {
+      "type": "Raw",
+      "scheme": "Key",
+      "parameter": "@appsetting('outlook-connectionKey')"
+    }
+  }
+}
