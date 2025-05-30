@@ -166,7 +166,10 @@ namespace Company.Function.ClaimCheck
                     string instanceId = await starter.StartNewAsync("ClaimCheckReceiveWorkflow", orchestratorInput);
                     log.LogInformation($"Started claim check receive workflow with ID = {instanceId}");
 
-                    /* doesn't work, the message is not deserialized correctly (ReceiveQueueMessagesOutputItem is is missing lockToken - I think the two models have different serilization)
+                    /* Doesn't work, the message is not deserialized correctly - two object have different contracts:
+                    - ReceiveQueueMessagesOutputItem have LockToken instead of lockToken
+                    - ReceiveQueueMessagesOutputItem have ContentData instead of Body
+                    
                     var orchestratorInput = msg;
                     orchestratorInput.ContentData = msg.ContentData.ToString(); // Ensure ContentData is set from the message body
                     log.LogInformation("Orchestrator input: {OrchestratorInput}", JsonSerializer.Serialize(orchestratorInput));
