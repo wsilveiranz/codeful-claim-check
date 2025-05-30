@@ -29,7 +29,7 @@ namespace Company.Function.ClaimCheck
             log.LogInformation("ClaimCheckReceiveWorkflow started.");
             var outputs = new List<string>();
             // Get input from trigger
-            var messageInput = context.GetInput<ServiceBusReceivedMessage>();
+            var messageInput = context.GetInput<ReceiveQueueMessagesOutputItem>();
             log.LogInformation("Received message: {MessageId}", messageInput.MessageId);
             //var messageContent = JsonSerializer.Deserialize<ClaimCheckReceiveMessage>(messageInput.ContentData.ToString());
             try
@@ -38,16 +38,17 @@ namespace Company.Function.ClaimCheck
 
                 // Add to outputs for return
                 outputs.Add($"Received message with ID: {messageInput.MessageId}");
+                log.LogInformation($"Message ID: {messageInput.MessageId}, Body: {messageInput.ContentData}");
 
-                // Validate the message
-                //await context.CallActivityAsync("ValidateMessage", messageContent);
-                //log.LogInformation("Message validation completed successfully.");
+                var claimCheckMessage = JsonSerializer.Deserialize<ClaimCheckReceiveMessage>(messageInput.ContentData.ToString());
+                await context.CallActivityAsync("ValidateMessage", claimCheckMessage);
+                log.LogInformation("Message validation completed successfully.");
 
                 // Read blob content
                 var blobParams = new spConnectors.AzureBlob.ReadBlobInput
                 {
                     ContainerName = "claim-check-pattern",  // This would typically come from parameters
-                    BlobName = messageInput.Body.ToString() // Assuming ClaimId is passed in the message; 
+                    BlobName = claimCheckMessage.ClaimId.ToString() // Assuming ClaimId is passed in the message; 
                 };
 
                 ReadBlobOutput blobOutput = await context.ReadBlobAsync(
@@ -81,7 +82,7 @@ namespace Company.Function.ClaimCheck
                 var deleteBlobParams = new spConnectors.AzureBlob.DeleteBlobInput
                 {
                     ContainerName = "claim-check-pattern", // This would typically come from parameters
-                    BlobName = messageInput.Body.ToString() // Assuming ClaimId is passed in the message
+                    BlobName = claimCheckMessage.ClaimId.ToString() // Assuming ClaimId is passed in the message
                 };
 
                 await context.DeleteBlobAsync(connectionId: "AzureBlob", input: deleteBlobParams);
@@ -138,7 +139,7 @@ namespace Company.Function.ClaimCheck
 
         [FunctionName("ServiceBusQueueTrigger")]
         public static async Task Run(
-            [ServiceBusTrigger("claim-check-pattern", Connection = "serviceBus_connectionString", AutoCompleteMessages = false)] spConnectors.ServiceBus.ReceiveQueueMessagesOutputItem[] messages,
+            [ServiceBusTrigger("claim-check-pattern", Connection = "serviceBus_connectionString", AutoCompleteMessages = false)] ServiceBusReceivedMessage[] messages,
             [DurableClient] IDurableOrchestrationClient starter,
             ILogger log)
         {
@@ -148,21 +149,32 @@ namespace Company.Function.ClaimCheck
 
                 try
                 {
+                    /* this is working convering the ServiceBus message to a ReceiveQueueMessagesOutputItem */
                     // Parse the message content
+                    var messageContent = msg.Body.ToString();
 
                     // Create input for the orchestrator
-                    var orchestratorInput = msg;
-
+                    var orchestratorInput = new ReceiveQueueMessagesOutputItem
+                    {
+                        MessageId = msg.MessageId,
+                        ContentData = messageContent,
+                        LockToken = msg.LockToken
+                    };
+                    // Log the input
+                    log.LogInformation("Orchestrator input: {OrchestratorInput}", JsonSerializer.Serialize(orchestratorInput));
                     // Start the orchestration
                     string instanceId = await starter.StartNewAsync("ClaimCheckReceiveWorkflow", orchestratorInput);
-                    log.LogInformation("Started claim check receive workflow with ID = {instanceId}", instanceId);
-                    DurableOrchestrationStatus status;
-                    do
-                    {
-                        status = await starter.GetStatusAsync(instanceId);
-                        await Task.Delay(500); // Wait for 500ms before checking the status again
-                    } while (status.RuntimeStatus == OrchestrationRuntimeStatus.Running ||
-                           status.RuntimeStatus == OrchestrationRuntimeStatus.Pending);
+                    log.LogInformation($"Started claim check receive workflow with ID = {instanceId}");
+
+                    /* doesn't work, the message is not deserialized correctly (ReceiveQueueMessagesOutputItem is is missing lockToken - I think the two models have different serilization)
+                    var orchestratorInput = msg;
+                    orchestratorInput.ContentData = msg.ContentData.ToString(); // Ensure ContentData is set from the message body
+                    log.LogInformation("Orchestrator input: {OrchestratorInput}", JsonSerializer.Serialize(orchestratorInput));
+                    // Start the orchestration
+                    string instanceId = await starter.StartNewAsync("ClaimCheckReceiveWorkflow", orchestratorInput);
+                    log.LogInformation($"Started claim check receive workflow with ID = {instanceId}");
+                    */
+
                 }
                 catch (Exception ex)
                 {
@@ -172,11 +184,21 @@ namespace Company.Function.ClaimCheck
         }
     }
 
+    internal class LocalMessage
+    {
+        public string MessageId { get; set; }
+        public string ContentData { get; set; }
+        public string LockToken { get; set; }
+    }
+
     // Input/Output Models
+
     public class ClaimCheckReceiveMessage
     {
         public string MessageId { get; set; }
         public string ClaimId { get; set; }
         public string FileName { get; set; }
     }
+
+
 }
